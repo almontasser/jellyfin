@@ -118,7 +118,7 @@ public class MediaInfoHelper
 
         // Exclude the current session from the active streams count
         var activeStreams = sessions
-            .Where(s => s.NowPlayingItem?.MediaType == MediaType.Video && s.Id != sessionId)
+            .Where(s => s.NowPlayingItem?.MediaType == MediaType.Video && s.UserId.Equals(user.Id) && s.Id != sessionId)
             .ToList();
         if (user.MaxActiveVideoStreams > 0 && activeStreams.Count >= user.MaxActiveVideoStreams)
         {
