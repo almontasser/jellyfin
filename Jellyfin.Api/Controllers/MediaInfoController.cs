@@ -13,6 +13,8 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.MediaInfo;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -35,6 +37,7 @@ public class MediaInfoController : BaseJellyfinApiController
     private readonly ILogger<MediaInfoController> _logger;
     private readonly MediaInfoHelper _mediaInfoHelper;
     private readonly IUserManager _userManager;
+    private readonly ISessionManager _sessionManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoController"/> class.
@@ -44,14 +47,16 @@ public class MediaInfoController : BaseJellyfinApiController
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{MediaInfoController}"/> interface.</param>
     /// <param name="mediaInfoHelper">Instance of the <see cref="MediaInfoHelper"/>.</param>
-    /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface..</param>
+    /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     public MediaInfoController(
         IMediaSourceManager mediaSourceManager,
         IDeviceManager deviceManager,
         ILibraryManager libraryManager,
         ILogger<MediaInfoController> logger,
         MediaInfoHelper mediaInfoHelper,
-        IUserManager userManager)
+        IUserManager userManager,
+        ISessionManager sessionManager)
     {
         _mediaSourceManager = mediaSourceManager;
         _deviceManager = deviceManager;
@@ -59,6 +64,7 @@ public class MediaInfoController : BaseJellyfinApiController
         _logger = logger;
         _mediaInfoHelper = mediaInfoHelper;
         _userManager = userManager;
+        _sessionManager = sessionManager;
     }
 
     /// <summary>
@@ -69,6 +75,7 @@ public class MediaInfoController : BaseJellyfinApiController
     /// <response code="200">Playback info returned.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="Task"/> containing a <see cref="PlaybackInfoResponse"/> with the playback information.</returns>
+    [Authorize]
     [HttpGet("Items/{itemId}/PlaybackInfo")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -84,7 +91,17 @@ public class MediaInfoController : BaseJellyfinApiController
             return NotFound();
         }
 
-        return await _mediaInfoHelper.GetPlaybackInfo(item, user).ConfigureAwait(false);
+        var session = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext, userId).ConfigureAwait(false);
+        var playbackInfo = await _mediaInfoHelper.GetPlaybackInfo(item, user, session.Id).ConfigureAwait(false);
+        if (playbackInfo.ErrorCode is not null)
+        {
+            if (playbackInfo.ErrorCode == PlaybackErrorCode.RateLimitExceeded)
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, "Rate limit exceeded.");
+            }
+        }
+
+        return playbackInfo;
     }
 
     /// <summary>
@@ -113,6 +130,7 @@ public class MediaInfoController : BaseJellyfinApiController
     /// <response code="200">Playback info returned.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="Task"/> containing a <see cref="PlaybackInfoResponse"/> with the playback info.</returns>
+    [Authorize]
     [HttpPost("Items/{itemId}/PlaybackInfo")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -174,15 +192,22 @@ public class MediaInfoController : BaseJellyfinApiController
             return NotFound();
         }
 
+        var session = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext, userId).ConfigureAwait(false);
         var info = await _mediaInfoHelper.GetPlaybackInfo(
                 item,
                 user,
+                session.Id,
                 mediaSourceId,
                 liveStreamId)
             .ConfigureAwait(false);
 
         if (info.ErrorCode is not null)
         {
+            if (info.ErrorCode == PlaybackErrorCode.RateLimitExceeded)
+            {
+                    return StatusCode(StatusCodes.Status429TooManyRequests, "Rate limit exceeded.");
+            }
+
             return info;
         }
 

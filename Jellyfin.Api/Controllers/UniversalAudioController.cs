@@ -14,6 +14,7 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Streaming;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.MediaInfo;
@@ -37,6 +38,7 @@ public class UniversalAudioController : BaseJellyfinApiController
     private readonly AudioHelper _audioHelper;
     private readonly DynamicHlsHelper _dynamicHlsHelper;
     private readonly IUserManager _userManager;
+    private readonly ISessionManager _sessionManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UniversalAudioController"/> class.
@@ -47,13 +49,15 @@ public class UniversalAudioController : BaseJellyfinApiController
     /// <param name="audioHelper">Instance of <see cref="AudioHelper"/>.</param>
     /// <param name="dynamicHlsHelper">Instance of <see cref="DynamicHlsHelper"/>.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     public UniversalAudioController(
         ILibraryManager libraryManager,
         ILogger<UniversalAudioController> logger,
         MediaInfoHelper mediaInfoHelper,
         AudioHelper audioHelper,
         DynamicHlsHelper dynamicHlsHelper,
-        IUserManager userManager)
+        IUserManager userManager,
+        ISessionManager sessionManager)
     {
         _libraryManager = libraryManager;
         _logger = logger;
@@ -61,6 +65,7 @@ public class UniversalAudioController : BaseJellyfinApiController
         _audioHelper = audioHelper;
         _dynamicHlsHelper = dynamicHlsHelper;
         _userManager = userManager;
+        _sessionManager = sessionManager;
     }
 
     /// <summary>
@@ -131,9 +136,11 @@ public class UniversalAudioController : BaseJellyfinApiController
 
         _logger.LogInformation("GetPostedPlaybackInfo profile: {@Profile}", deviceProfile);
 
+        var session = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext, userId).ConfigureAwait(false);
         var info = await _mediaInfoHelper.GetPlaybackInfo(
                 item,
                 user,
+                session.Id,
                 mediaSourceId)
             .ConfigureAwait(false);
 

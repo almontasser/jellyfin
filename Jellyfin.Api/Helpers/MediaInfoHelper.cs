@@ -18,6 +18,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -42,6 +43,7 @@ public class MediaInfoHelper
     private readonly ILogger<MediaInfoHelper> _logger;
     private readonly INetworkManager _networkManager;
     private readonly IDeviceManager _deviceManager;
+    private readonly ISessionManager _sessionManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoHelper"/> class.
@@ -54,6 +56,7 @@ public class MediaInfoHelper
     /// <param name="logger">Instance of the <see cref="ILogger{MediaInfoHelper}"/> interface.</param>
     /// <param name="networkManager">Instance of the <see cref="INetworkManager"/> interface.</param>
     /// <param name="deviceManager">Instance of the <see cref="IDeviceManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <sec cref="ISessionManager"/> interface.</param>
     public MediaInfoHelper(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -62,7 +65,8 @@ public class MediaInfoHelper
         IServerConfigurationManager serverConfigurationManager,
         ILogger<MediaInfoHelper> logger,
         INetworkManager networkManager,
-        IDeviceManager deviceManager)
+        IDeviceManager deviceManager,
+        ISessionManager sessionManager)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -72,6 +76,7 @@ public class MediaInfoHelper
         _logger = logger;
         _networkManager = networkManager;
         _deviceManager = deviceManager;
+        _sessionManager = sessionManager;
     }
 
     /// <summary>
@@ -79,16 +84,53 @@ public class MediaInfoHelper
     /// </summary>
     /// <param name="item">The item.</param>
     /// <param name="user">The user.</param>
+    /// <param name="sessionId">The session id.</param>
     /// <param name="mediaSourceId">Media source id.</param>
     /// <param name="liveStreamId">Live stream id.</param>
     /// <returns>A <see cref="Task"/> containing the <see cref="PlaybackInfoResponse"/>.</returns>
     public async Task<PlaybackInfoResponse> GetPlaybackInfo(
         BaseItem item,
         User? user,
+        string sessionId,
         string? mediaSourceId = null,
         string? liveStreamId = null)
     {
         var result = new PlaybackInfoResponse();
+
+        if (user == null)
+        {
+            _logger.LogWarning("User is null, cannot get playback info for item {ItemId}", item.Id);
+            result.ErrorCode = PlaybackErrorCode.NotAllowed;
+            return result;
+        }
+
+        var sessions = _sessionManager.Sessions.ToArray();
+        var currentSessionAlreadyPlaying = sessions.FirstOrDefault(s => s.Id == sessionId);
+        if (currentSessionAlreadyPlaying?.NowPlayingItem != null)
+        {
+            if (!item.Id.Equals(currentSessionAlreadyPlaying.NowPlayingItem.Id))
+            {
+                _logger.LogWarning("Current session {SessionId} is already playing item {ItemId}", sessionId, currentSessionAlreadyPlaying.NowPlayingItem.Id);
+                result.ErrorCode = PlaybackErrorCode.RateLimitExceeded;
+                return result;
+            }
+        }
+
+        // Exclude the current session from the active streams count
+        var activeStreams = sessions
+            .Where(s => s.NowPlayingItem?.MediaType == MediaType.Video && s.Id != sessionId)
+            .ToList();
+        if (activeStreams.Count >= user.MaxActiveVideoStreams)
+        {
+            _logger.LogWarning(
+                "User {UserId} has too many active video streams ({ActiveStreamsCount}), max allowed is {MaxActiveStreams}",
+                user.Id,
+                activeStreams.Count,
+                user.MaxActiveVideoStreams);
+
+            result.ErrorCode = PlaybackErrorCode.RateLimitExceeded;
+            return result;
+        }
 
         MediaSourceInfo[] mediaSources;
         if (string.IsNullOrWhiteSpace(liveStreamId))
