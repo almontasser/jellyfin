@@ -120,7 +120,7 @@ public class MediaInfoHelper
         var activeStreams = sessions
             .Where(s => s.NowPlayingItem?.MediaType == MediaType.Video && s.Id != sessionId)
             .ToList();
-        if (activeStreams.Count >= user.MaxActiveVideoStreams)
+        if (user.MaxActiveVideoStreams > 0 && activeStreams.Count >= user.MaxActiveVideoStreams)
         {
             _logger.LogWarning(
                 "User {UserId} has too many active video streams ({ActiveStreamsCount}), max allowed is {MaxActiveStreams}",
